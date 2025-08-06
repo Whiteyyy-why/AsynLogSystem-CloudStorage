@@ -37,12 +37,9 @@ namespace storage
             if (ReadConfig() == false) // 尝试读取配置文件
             {
                 mylog::GetLogger("asynclogger")->Fatal("ReadConfig failed"); // 读取失败则记录致命错误
-                // 这里没有处理错误，而是直接返回，可能导致后续操作使用未初始化的配置
                 return;
             }
-#ifdef DEBUG_LOG
             mylog::GetLogger("asynclogger")->Info("ReadConfig complicate"); // 记录完成日志
-#endif
         }
 
     public:

@@ -438,60 +438,83 @@ namespace storage
 
 		// Delete：处理文件删除请求
         static void Delete(struct evhttp_request* req, void* arg) {
-            mylog::GetLogger("asynclogger")->Info("Delete start"); // 记录日志
-            // 获取请求体缓冲区
-            struct evbuffer* buf = evhttp_request_get_input_buffer(req);
-            if (buf == nullptr)
-            {
-                mylog::GetLogger("asynclogger")->Info("evhttp_request_get_input_buffer is empty");
+            mylog::GetLogger("asynclogger")->Info("Delete start");
+            
+            // 获取请求方法
+            evhttp_cmd_type method = evhttp_request_get_command(req);
+            
+            std::string url_to_delete;
+            
+            if (method == EVHTTP_REQ_GET) {
+                // 处理GET请求 - 从URL参数获取
+                const char* uri = evhttp_request_get_uri(req);
+                mylog::GetLogger("asynclogger")->Info("Delete GET request URI: %s", uri);
+                
+                // 解析查询参数
+                struct evkeyvalq params;
+                evhttp_parse_query(uri, &params);
+                
+                const char* url_param = evhttp_find_header(&params, "url");
+                if (url_param) {
+                    url_to_delete = UrlDecode(url_param); // URL解码
+                    mylog::GetLogger("asynclogger")->Info("Delete URL from GET params: %s", url_to_delete.c_str());
+                }
+                evhttp_clear_headers(&params);
+                
+            } else if (method == EVHTTP_REQ_POST) {
+                // 处理POST请求 - 从请求体获取
+                struct evbuffer* buf = evhttp_request_get_input_buffer(req);
+                size_t len = evbuffer_get_length(buf);
+                
+                if (len > 0) {
+                    std::string content(len, 0);
+                    evbuffer_copyout(buf, (void*)content.c_str(), len);
+                    
+                    // 解析JSON或表单数据
+                    // 这里根据你的具体格式来解析
+                    Json::Value root;
+                    if (JsonUtil::UnSerialize(content, &root)) {
+                        url_to_delete = root["url"].asString();
+                    }
+                    mylog::GetLogger("asynclogger")->Info("Delete URL from POST body: %s", url_to_delete.c_str());
+                }
+            }
+            
+            // 验证URL参数
+            if (url_to_delete.empty()) {
+                mylog::GetLogger("asynclogger")->Error("Delete request missing url parameter");
+                evhttp_send_reply(req, HTTP_BADREQUEST, "Missing url parameter", NULL);
                 return;
             }
-
-			size_t len = evbuffer_get_length(buf); // 获取请求体长度
-            mylog::GetLogger("asynclogger")->Info("evbuffer_get_length is %u", len);
-            if (0 == len) // 如果请求体为空，返回错误
-            {
-                evhttp_send_reply(req, HTTP_BADREQUEST, "file empty", NULL);
-                mylog::GetLogger("asynclogger")->Info("request body is empty");
-                return;
-            }
-            std::string content(len, 0); // 创建字符串存储请求体内容
-            if (-1 == evbuffer_copyout(buf, (void*)content.c_str(), len)) // 将缓冲区内容复制到字符串
-            {
-                mylog::GetLogger("asynclogger")->Error("evbuffer_copyout error");
-                evhttp_send_reply(req, HTTP_INTERNAL, NULL, NULL); // 服务器内部错误
-                return;
-            }
-
-			// 获取要删除的文件URL
-            std::string url = evhttp_find_header(req->input_headers, "url");
-            if (url.empty()) {
-                mylog::GetLogger("asynclogger")->Error("Delete request missing url header");
-                evhttp_send_reply(req, HTTP_BADREQUEST, "Missing url header", NULL);
-                return;
-			}
-            mylog::GetLogger("asynclogger")->Info("Delete request for url: %s", url.c_str());
+            
+            mylog::GetLogger("asynclogger")->Info("Attempting to delete file with URL: %s", url_to_delete.c_str());
+            
             // 从DataManager中获取StorageInfo
             StorageInfo info;
-            if (!data_->GetOneByURL(url, &info)) {
-                mylog::GetLogger("asynclogger")->Error("File not found in DataManager: %s", url.c_str());
+            if (!data_->GetOneByURL(url_to_delete, &info)) {
+                mylog::GetLogger("asynclogger")->Error("File not found in DataManager: %s", url_to_delete.c_str());
                 evhttp_send_reply(req, HTTP_NOTFOUND, "File not found", NULL);
                 return;
             }
-            // 删除文件
+            
+            // 删除物理文件
             if (remove(info.storage_path_.c_str()) != 0) {
-                mylog::GetLogger("asynclogger")->Error("Failed to delete file: %s", info.storage_path_.c_str());
+                mylog::GetLogger("asynclogger")->Error("Failed to delete physical file: %s", info.storage_path_.c_str());
                 evhttp_send_reply(req, HTTP_INTERNAL, "Failed to delete file", NULL);
                 return;
             }
+            
             // 从DataManager中删除记录
-            if (!data_->Delete(url)) {
-                mylog::GetLogger("asynclogger")->Error("Failed to delete record from DataManager: %s", url.c_str());
+            if (!data_->Delete(url_to_delete)) {
+                mylog::GetLogger("asynclogger")->Error("Failed to delete record from DataManager: %s", url_to_delete.c_str());
                 evhttp_send_reply(req, HTTP_INTERNAL, "Failed to delete record", NULL);
                 return;
             }
-            evhttp_send_reply(req, HTTP_OK, "File deleted successfully", NULL); // 返回成功响应
-			mylog::GetLogger("asynclogger")->Info("File deleted successfully: %s", url.c_str());
+            
+            // 返回成功页面或重定向到列表页
+            evhttp_add_header(req->output_headers, "Location", "/");
+            evhttp_send_reply(req, HTTP_MOVETEMP, "File deleted, redirecting...", NULL);
+            mylog::GetLogger("asynclogger")->Info("File deleted successfully: %s", url_to_delete.c_str());
         }
 
     };
