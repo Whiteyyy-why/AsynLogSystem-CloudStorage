@@ -9,6 +9,7 @@
 using namespace std;
 
 storage::DataManager *data_;
+storage::RecycleManager *recycle_data_;
 ThreadPool* tp=nullptr;
 mylog::Util::JsonData* g_conf_data;
 void service_module()
@@ -34,7 +35,7 @@ int main()
 {
     log_system_module_init();
     data_ = new storage::DataManager();
-
+    recycle_data_ = new storage::RecycleManager();
     thread t1(service_module);
 
     t1.join();

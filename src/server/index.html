@@ -9,6 +9,9 @@
         :root {
             --primary-color: #2c3e50;
             --secondary-color: #3498db;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
             --background: #f5f6fa;
             --card-bg: #ffffff;
         }
@@ -84,22 +87,54 @@
             color: white;
         }
 
-        button {
-            background: var(--secondary-color);
-            color: white;
+        /* 按钮样式 */
+        button, .btn {
             border: none;
             padding: 0.8rem 1.5rem;
             border-radius: 5px;
             cursor: pointer;
             transition: all 0.3s ease;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 0.5rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-decoration: none;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
         }
 
-        button:hover {
+        .btn-primary {
+            background: var(--secondary-color);
+            color: white;
+        }
+
+        .btn-warning {
+            background: var(--warning-color);
+            color: white;
+        }
+
+        .btn-success {
+            background: var(--success-color);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger-color);
+            color: white;
+        }
+
+        button:hover, .btn:hover {
             opacity: 0.9;
             transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .upload-actions {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
         }
 
         .file-list {
@@ -129,6 +164,17 @@
             border-radius: 5px;
             font-size: 0.9rem;
         }
+
+        .file-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .file-actions .btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+        }
     </style>
 </head>
 
@@ -156,9 +202,14 @@
                 </div>
             </div>
 
-            <button onclick="uploadFile()">
-                ⬆️ 开始上传
-            </button>
+            <div class="upload-actions">
+                <button class="btn-primary" onclick="uploadFile()">
+                    ⬆️ 开始上传
+                </button>
+                <button class="btn-warning" onclick="location.href='/recycle'">
+                    🗑️ 回收站
+                </button>
+            </div>
         </div>
 
         <!-- 文件列表动态插入点 -->
@@ -181,7 +232,7 @@
                 return;
             }
 
-            // // Base64 编码
+            // Base64 编码
             const encodedFilename = btoa(unescape(encodeURIComponent(file.name)));
             console.log("Base64 编码结果:", encodedFilename);
 
@@ -190,7 +241,7 @@
                     method: 'POST',
                     headers: {
                         'StorageType': storageType,
-                        'FileName': encodedFilename // 使用 Base64 编码
+                        'FileName': encodedFilename
                     },
                     body: file
                 });
@@ -206,8 +257,27 @@
             }
         }
 
-        function downloadFile(fileId) {
-            window.location = `${config.backendUrl}/download?id=${fileId}`;
+        function deleteFile(url) {
+            if(confirm('确定要删除这个文件吗？文件会放入回收站。')){
+                window.location = '/delete?url=' + encodeURIComponent(url);
+            }
+        }
+
+        function restoreFile(url) {
+            if(confirm('确定要恢复这个文件吗？')){
+                window.location = '/recycle/restore?url=' + encodeURIComponent(url);
+            }
+        }
+
+        function permanentDelete(url){
+            if(confirm('确定要永久删除这个文件吗？此操作不可恢复。')){
+                window.location = '/recycle/delete?url=' + encodeURIComponent(url);
+            }
+        }
+
+        function downloadFile(url) {
+            // 直接使用文件URL进行下载
+            window.location = url;
         }
     </script>
 </body>

@@ -1,7 +1,9 @@
 #pragma once
 #include "Util.hpp" // 包含FileUtil和JsonUtil，用于读写配置文件
+#include <bits/types/time_t.h>
 #include <memory> // 包含智能指针，尽管在这个单例模式中没有直接用于智能指针管理
 #include <mutex> // 包含互斥锁，用于单例模式的线程安全初始化
+#include <string>
 
 // 该类用于读取配置文件信息
 namespace storage
@@ -21,6 +23,9 @@ namespace storage
         std::string low_storage_dir_;     // 浅度存储文件的路径
         std::string storage_info_;        // 已存储文件信息的文件路径
         int bundle_format_;               // 深度存储的文件压缩格式
+        std::string recycle_bin_dir_; // 回收站目录
+        std::string recycle_info_; // 回收站信息文件路径
+        int recycle_retention_days_; // 回收站文件保留天数
 
     private:
         // 静态互斥锁，用于保护单例实例的创建
@@ -73,6 +78,9 @@ namespace storage
             deep_storage_dir_ = root["deep_storage_dir"].asString();
             low_storage_dir_ = root["low_storage_dir"].asString();
             bundle_format_ = root["bundle_format"].asInt();
+            recycle_bin_dir_ = root["recycle_bin_dir"].asString();
+            recycle_info_ = root["recycle_info"].asString();
+            recycle_retention_days_ = root["recycle_retention_days"].asInt();
 
             mylog::GetLogger("asynclogger")->Info("ReadConfig finish"); // 记录完成日志
             return true;
@@ -106,6 +114,17 @@ namespace storage
         std::string GetStorageInfoFile()
         {
             return storage_info_;
+        }
+        std::string GetRecycleBinDir()
+        {
+            return recycle_bin_dir_;
+        }
+        std::string GetRecycleInfoFile()
+        {
+            return recycle_info_;
+        }
+        int GetRecycleRetentionDays(){
+            return recycle_retention_days_;
         }
 
     public:

@@ -1,6 +1,8 @@
 #pragma once
 #include "DataManager.hpp" // 包含DataManager和StorageInfo，用于管理文件元数据
 
+#include <bits/types/FILE.h>
+#include <string>
 #include <sys/queue.h> // libevent内部可能使用，通常不直接用到
 #include <event.h> // libevent核心头文件
 // for http
@@ -11,11 +13,14 @@
 #include <sys/stat.h> // 文件状态，如open函数
 
 #include <regex> // 正则表达式，用于HTML模板替换
+#include <vector>
 
+#include "Util.hpp"
 #include "base64.h" // 来自 cpp-base64 库，用于文件名编码/解码
 
 // 声明外部全局的DataManager指针
 extern storage::DataManager* data_;
+extern storage::RecycleManager* recycle_data_;
 
 namespace storage
 {
@@ -26,16 +31,16 @@ namespace storage
         // 构造函数：读取服务器配置
         Service()
         {
-#ifdef DEBUG_LOG
-            mylog::GetLogger("asynclogger")->Debug("Service start(Construct)"); // 记录调试日志
-#endif
+            #ifdef DEBUG_LOG
+                        mylog::GetLogger("asynclogger")->Debug("Service start(Construct)"); // 记录调试日志
+            #endif
             // 从Config单例获取服务器配置
             server_port_ = Config::GetInstance()->GetServerPort();
             server_ip_ = Config::GetInstance()->GetServerIp();
             download_prefix_ = Config::GetInstance()->GetDownloadPrefix();
-#ifdef DEBUG_LOG
-            mylog::GetLogger("asynclogger")->Debug("Service end(Construct)"); // 记录调试日志
-#endif
+        #ifdef DEBUG_LOG
+                    mylog::GetLogger("asynclogger")->Debug("Service end(Construct)"); // 记录调试日志
+        #endif
         }
 
         // RunModule方法：启动HTTP服务器
@@ -70,9 +75,9 @@ namespace storage
 
             if (base)
             {
-#ifdef DEBUG_LOG
-                mylog::GetLogger("asynclogger")->Debug("event_base_dispatch"); // 记录调试日志
-#endif
+                #ifdef DEBUG_LOG
+                                mylog::GetLogger("asynclogger")->Debug("event_base_dispatch"); // 记录调试日志
+                #endif
                 // 启动libevent事件循环，开始监听和处理HTTP请求
                 if (-1 == event_base_dispatch(base))
                 {
@@ -92,7 +97,6 @@ namespace storage
         std::string server_ip_; // 服务器IP地址
         std::string download_prefix_; // 下载URL前缀
 
-    private:
         // GenHandler：通用的HTTP请求分发器 (静态回调函数)
         static void GenHandler(struct evhttp_request* req, void* arg)
         {
@@ -118,6 +122,18 @@ namespace storage
             {
                 ListShow(req, arg);
             }
+            else if(path == "/recycle") // 显示回收站请求
+            {
+                RecycleList(req, arg);
+            }
+            else if(path == "/recycle/delete") // 回收站删除请求
+            {
+                DeleteRecycle(req, arg);
+            }
+            else if(path == "/recycle/restore") // 回收站恢复请求
+            {
+                Restore(req, arg);
+            }
             else // 未知请求，返回404
             {
                 evhttp_send_reply(req, HTTP_NOTFOUND, "Not Found", NULL);
@@ -125,8 +141,7 @@ namespace storage
         }
 
         // Upload：处理文件上传请求
-        static void Upload(struct evhttp_request* req, void* arg)
-        {
+        static void Upload(struct evhttp_request* req, void* arg) {
             mylog::GetLogger("asynclogger")->Info("Upload start"); // 记录日志
 
             // 获取请求体缓冲区
@@ -184,9 +199,9 @@ namespace storage
 
             // 完整的最终文件存储路径
             std::string final_storage_path = storage_path_dir + filename;
-#ifdef DEBUG_LOG
-            mylog::GetLogger("asynclogger")->Debug("storage_path:%s", final_storage_path.c_str());
-#endif
+            #ifdef DEBUG_LOG
+                        mylog::GetLogger("asynclogger")->Debug("storage_path:%s", final_storage_path.c_str());
+            #endif
 
             // 根据存储类型写入文件 (low_storage直接写入，deep_storage压缩后写入)
             FileUtil fu(final_storage_path);
@@ -228,52 +243,132 @@ namespace storage
         }
 
         // TimetoStr：将time_t时间转换为字符串 (此处仅为辅助，实际在ListShow中被generateModernFileList调用)
-        static std::string TimetoStr(time_t t)
-        {
+        static std::string TimetoStr(time_t t) {
             std::string tmp = std::ctime(&t); // 使用ctime将时间戳转为可读字符串
             return tmp;
         }
 
         // generateModernFileList：生成HTML文件列表片段
-        static std::string generateModernFileList(const std::vector<StorageInfo>& files)
-        {
+        static std::string generateModernFileList(const std::vector<StorageInfo>& files) {
             std::stringstream ss;
-            ss << "<div class='file-list'><h3>已上传文件</h3>";
+            ss << "<div class='file-list'><h3>📁 已上传文件 (" << files.size() << " 个)</h3>";
 
-            for (const auto& file : files) // 遍历所有StorageInfo
-            {
-                std::string filename = FileUtil(file.storage_path_).FileName(); // 获取文件名
+            if (files.empty()) {
+                ss << "<div class='empty-state'>"
+                   << "<div class='icon' style='font-size: 4rem; margin-bottom: 1rem; opacity: 0.5;'>📁</div>"
+                   << "<h4>还没有上传任何文件</h4>"
+                   << "<p style='color: #666;'>请选择文件并点击上传按钮</p>"
+                   << "</div>";
+            } else {
+                for (const auto& file : files) {
+                    std::string filename = FileUtil(file.storage_path_).FileName();
+                    std::string storage_type = "low";
+                    if (file.storage_path_.find("deep") != std::string::npos) {
+                        storage_type = "deep";
+                    }
 
-                // 从存储路径判断存储类型
-                std::string storage_type = "low";
-                if (file.storage_path_.find("deep") != std::string::npos)
-                {
-                    storage_type = "deep";
+                    ss << "<div class='file-item'>"
+                       << "<div class='file-info'>"
+                       << "<span>📄 " << filename << "</span>"
+                       << "<span class='file-type' style='background: " 
+                       << (storage_type == "deep" ? "#007bff" : "#28a745") << "; color: white;'>"
+                       << (storage_type == "deep" ? "深度存储" : "普通存储")
+                       << "</span>"
+                       << "<span>" << formatSize(file.fsize_) << "</span>"
+                       << "<span>" << TimetoStr(file.mtime_) << "</span>"
+                       << "</div>"
+                       << "<div class='file-actions' style='display: flex; gap: 0.5rem;'>"
+                       << "<button onclick=\"window.location='" << file.url_ << "'\" class='btn-primary'>⬇️ 下载</button>"
+                       << "<button onclick=\"deleteFile('" << file.url_ << "')\" class='btn-warning'>🗑️ 删除</button>"
+                       << "</div>"
+                       << "</div>";
                 }
-
-                // 构建每个文件项的HTML
-                ss << "<div class='file-item'>"
-                    << "<div class='file-info'>"
-                    << "<span>📄" << filename << "</span>"
-                    << "<span class='file-type'>"
-                    << (storage_type == "deep" ? "深度存储" : "普通存储")
-                    << "</span>"
-                    << "<span>" << formatSize(file.fsize_) << "</span>" // 格式化文件大小
-                    << "<span>" << TimetoStr(file.mtime_) << "</span>" // 格式化修改时间
-                    << "</div>"
-                    // 下载按钮，点击跳转到下载URL
-                    << "<button onclick=\"window.location='" << file.url_ << "'\">⬇️ 下载</button>"
-					<< "<button onclick=\"window.location='/delete?url=" << file.url_ << "'\">🗑️ 删除</button>"
-                    << "</div>";
             }
 
-            ss << "</div>"; // 关闭文件列表div
+            ss << "</div>";
+            return ss.str();
+        }
+
+        // generateModernRecycleList：生成回收站文件列表片段
+        static std::string generateModernRecycleList(const std::vector<StorageInfo>& files) {
+            std::stringstream ss;
+            
+            if (files.empty()) {
+                ss << "<div class='empty-state'>"
+                   << "<div class='icon' style='font-size: 4rem; margin-bottom: 1rem; opacity: 0.5;'>🗑️</div>"
+                   << "<h3>回收站为空</h3>"
+                   << "<p style='color: #666; margin: 1rem 0;'>已删除的文件会出现在这里</p>"
+                   << "<button onclick=\"window.location='/'\" class='btn-primary'>返回主页</button>"
+                   << "</div>";
+                return ss.str();
+            }
+
+            ss << "<div class='recycle-header' style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding: 1rem; background: #f8f9fa; border-radius: 8px;'>"
+               << "<h3 style='margin: 0;'>🗑️ 回收站 (" << files.size() << " 个文件)</h3>"
+               << "<button onclick=\"window.location='/'\" class='btn-primary'>📁 返回主页</button>"
+               << "</div>";
+
+            ss << "<div class='file-list recycle-list'>";
+            
+            for (const auto& file : files) {
+                std::string filename = FileUtil(file.storage_path_).FileName();
+                
+                // 移除时间戳前缀（格式：timestamp_filename）
+                size_t underscore_pos = filename.find('_');
+                if (underscore_pos != std::string::npos) {
+                    filename = filename.substr(underscore_pos + 1);
+                }
+                
+                // 格式化删除时间
+                std::string delete_time_str = "未知时间";
+                if (file.delete_time_ > 0) {
+                    time_t delete_time = file.delete_time_;
+                    delete_time_str = TimetoStr(delete_time);
+                    // 移除换行符
+                    delete_time_str.erase(delete_time_str.find_last_not_of("\n\r") + 1);
+                }
+
+                ss << "<div class='file-item recycle-item' style='background: #fff3cd; border-left: 4px solid #ffc107;'>"
+                   << "<div class='file-info'>"
+                   << "<span style='font-weight: 500;'>🗑️ " << filename << "</span>"
+                   << "<span class='file-type' style='background: " 
+                   << (file.origin_type_ == "low" ? "#28a745" : "#007bff") << "; color: white;'>"
+                   << (file.origin_type_ == "low" ? "普通存储" : "深度存储")
+                   << "</span>"
+                   << "<span>" << formatSize(file.fsize_) << "</span>"
+                   << "<span style='color: #dc3545;'>删除于: " << delete_time_str << "</span>"
+                   << "</div>"
+                   << "<div class='file-actions' style='display: flex; gap: 0.5rem;'>"
+                   << "<button onclick=\"restoreFile('" << file.url_ << "')\" class='btn-success' style='background: #28a745;'>↩️ 恢复</button>"
+                   << "<button onclick=\"permanentDelete('" << file.url_ << "')\" class='btn-danger' style='background: #dc3545;'>🗑️ 彻底删除</button>"
+                   << "</div>"
+                   << "</div>";
+            }
+
+            ss << "</div>";
+            
+            // 添加回收站说明
+            ss << "<div style='margin-top: 2rem; padding: 1rem; background: #e3f2fd; border-radius: 5px; border-left: 4px solid #2196f3;'>"
+               << "<h4 style='margin: 0 0 0.5rem 0; color: #1976d2;'>📋 回收站说明</h4>"
+               << "<ul style='margin: 0; padding-left: 1.5rem; color: #555;'>"
+               << "<li>恢复文件：将文件恢复到原来的存储位置</li>"
+               << "<li>彻底删除：永久删除文件，无法恢复</li>"
+               << "<li>文件在回收站中保留30天后自动清理</li>"
+               << "</ul>"
+               << "</div>";
+
+            return ss.str();
+        }
+
+        // 📁 生成主页面内容
+        static std::string generateMainPageContent(const std::vector<StorageInfo>& files) {
+            std::stringstream ss;
+            ss << generateModernFileList(files);
             return ss.str();
         }
 
         // formatSize：格式化文件大小为可读单位 (B, KB, MB, GB)
-        static std::string formatSize(uint64_t bytes)
-        {
+        static std::string formatSize(uint64_t bytes) {
             const char* units[] = { "B", "KB", "MB", "GB" };
             int unit_index = 0;
             double size = bytes;
@@ -290,8 +385,7 @@ namespace storage
         }
 
         // ListShow：处理文件列表展示请求
-        static void ListShow(struct evhttp_request* req, void* arg)
-        {
+        static void ListShow(struct evhttp_request* req, void* arg) {
             mylog::GetLogger("asynclogger")->Info("ListShow()"); // 记录日志
 
             // 1. 获取所有文件存储信息
@@ -308,7 +402,7 @@ namespace storage
             // 替换文件列表
             templateContent = std::regex_replace(templateContent,
                 std::regex("\\{\\{FILE_LIST\\}\\}"), // 查找{{FILE_LIST}}
-                generateModernFileList(arry)); // 替换为生成的文件列表HTML
+                generateMainPageContent(arry)); // 替换为生成的文件列表HTML
             // 替换服务器地址
             templateContent = std::regex_replace(templateContent,
                 std::regex("\\{\\{BACKEND_URL\\}\\}"), // 查找{{BACKEND_URL}}
@@ -316,17 +410,15 @@ namespace storage
 
             // 获取请求的输出缓冲区
             struct evbuffer* buf = evhttp_request_get_output_buffer(req);
-            auto response_body = templateContent;
             // 将生成的HTML内容添加到输出缓冲区
-            evbuffer_add(buf, (const void*)response_body.c_str(), response_body.size());
+            evbuffer_add(buf, templateContent.c_str(), templateContent.size());
             evhttp_add_header(req->output_headers, "Content-Type", "text/html;charset=utf-8"); // 设置响应头
             evhttp_send_reply(req, HTTP_OK, NULL, NULL); // 发送HTTP OK响应
             mylog::GetLogger("asynclogger")->Info("ListShow() finish"); // 记录日志
         }
 
         // GetETag：根据文件信息生成ETag (用于缓存和断点续传)
-        static std::string GetETag(const StorageInfo& info)
-        {
+        static std::string GetETag(const StorageInfo& info) {
             // 自定义etag格式: filename-fsize-mtime
             FileUtil fu(info.storage_path_);
             std::string etag = fu.FileName();
@@ -338,8 +430,7 @@ namespace storage
         }
 
         // Download：处理文件下载请求
-        static void Download(struct evhttp_request* req, void* arg)
-        {
+        static void Download(struct evhttp_request* req, void* arg) {
             // 1. 获取请求的资源路径，并获取对应的StorageInfo
             StorageInfo info;
             std::string resource_path = evhttp_uri_get_path(evhttp_request_get_evhttp_uri(req));
@@ -440,47 +531,22 @@ namespace storage
         static void Delete(struct evhttp_request* req, void* arg) {
             mylog::GetLogger("asynclogger")->Info("Delete start");
             
-            // 获取请求方法
-            evhttp_cmd_type method = evhttp_request_get_command(req);
-            
             std::string url_to_delete;
+            // 处理GET请求 - 从URL参数获取
+            const char* uri = evhttp_request_get_uri(req);
+            mylog::GetLogger("asynclogger")->Info("Delete GET request URI: %s", uri);
             
-            if (method == EVHTTP_REQ_GET) {
-                // 处理GET请求 - 从URL参数获取
-                const char* uri = evhttp_request_get_uri(req);
-                mylog::GetLogger("asynclogger")->Info("Delete GET request URI: %s", uri);
-                
-                // 解析查询参数
-                struct evkeyvalq params;
-                evhttp_parse_query(uri, &params);
-                
-                const char* url_param = evhttp_find_header(&params, "url");
-                if (url_param) {
-                    url_to_delete = UrlDecode(url_param); // URL解码
-                    mylog::GetLogger("asynclogger")->Info("Delete URL from GET params: %s", url_to_delete.c_str());
-                }
-                evhttp_clear_headers(&params);
-                
-            } else if (method == EVHTTP_REQ_POST) {
-                // 处理POST请求 - 从请求体获取
-                struct evbuffer* buf = evhttp_request_get_input_buffer(req);
-                size_t len = evbuffer_get_length(buf);
-                
-                if (len > 0) {
-                    std::string content(len, 0);
-                    evbuffer_copyout(buf, (void*)content.c_str(), len);
-                    
-                    // 解析JSON或表单数据
-                    // 这里根据你的具体格式来解析
-                    Json::Value root;
-                    if (JsonUtil::UnSerialize(content, &root)) {
-                        url_to_delete = root["url"].asString();
-                    }
-                    mylog::GetLogger("asynclogger")->Info("Delete URL from POST body: %s", url_to_delete.c_str());
-                }
+            // 解析查询参数
+            struct evkeyvalq params;
+            evhttp_parse_query(uri, &params);
+            
+            const char* url_param = evhttp_find_header(&params, "url");
+            if (url_param) {
+                url_to_delete = UrlDecode(url_param); // URL解码
+                mylog::GetLogger("asynclogger")->Info("Delete URL from GET params: %s", url_to_delete.c_str());
             }
-            
-            // 验证URL参数
+            evhttp_clear_headers(&params); // 清理参数头
+
             if (url_to_delete.empty()) {
                 mylog::GetLogger("asynclogger")->Error("Delete request missing url parameter");
                 evhttp_send_reply(req, HTTP_BADREQUEST, "Missing url parameter", NULL);
@@ -496,26 +562,215 @@ namespace storage
                 evhttp_send_reply(req, HTTP_NOTFOUND, "File not found", NULL);
                 return;
             }
+
+            std::string recycle_path = Config::GetInstance()->GetRecycleBinDir();
+            std::string storage_type = (info.storage_path_.find("low_storage") != std::string::npos) ? "low" : "deep"; // 判断存储类型
+            std::string dest_dir = recycle_path + storage_type + "/"; // 回收站目录
             
+            FileUtil dirCreate(dest_dir);
+            if(!dirCreate.CreateDirectory()){
+                mylog::GetLogger("asynclogger")->Error("Failed to create recycle bin directory: %s", dest_dir.c_str());
+                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to create recycle bin directory", NULL);
+                return;
+            }
+            
+            std::string filename = FileUtil(info.storage_path_).FileName(); // 获取文件名
+            std::string timestamp = std::to_string(time(nullptr)); // 获取当前时间戳
+            std::string dest_path = dest_dir + timestamp + "_" + filename; // 设置回收站文件名
+            
+            // 删除流程，注意安全
+            // 回收站文件信息进行insert
+            StorageInfo recycle_info = info; // 复制原有信息到回收站信息
+            recycle_info.storage_path_ = dest_path; // 设置回收站路径
+            recycle_info.delete_time_ = std::stol(timestamp); // 使用与文件名一致的时间戳
+            recycle_info.origin_type_ = (storage_type == "low") ? "low" : "deep"; // 设置原始存储类型
+            
+            if(!recycle_data_->Insert(recycle_info)){
+                mylog::GetLogger("asynclogger")->Error("Failed to insert file into recycle bin: %s", url_to_delete.c_str());
+                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to move file to recycle bin", NULL);
+                return;
+            }
+
+            // 移动物理文件
+            if(rename(info.storage_path_.c_str(), dest_path.c_str()) != 0) {
+                mylog::GetLogger("asynclogger")->Error("Failed to move file to recycle bin: %s", strerror(errno));
+                // 回滚
+                recycle_data_->Delete(url_to_delete); // 如果移动失败，删除回收站记录
+                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to move file to recycle bin", NULL);
+                return;
+            }
+
+            // 删除原来的文件信息
+            if(!data_->Delete(url_to_delete)) {
+                mylog::GetLogger("asynclogger")->Error("Failed to delete file from DataManager: %s", url_to_delete.c_str());
+                // 回滚
+                rename(dest_path.c_str(), info.storage_path_.c_str()); // 如果删除失败，恢复文件
+                recycle_data_->Delete(url_to_delete); // 删除回收站记录
+                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to delete file from DataManager", NULL);
+                return;
+            }
+
+            evhttp_add_header(req->output_headers, "Location", "/");
+            evhttp_send_reply(req, 302, "Found", NULL);
+            mylog::GetLogger("asynclogger")->Info("File moved to recycle bin, redirecting to main page");
+        }
+
+        // Restore: 处理文件恢复请求
+        static void Restore(struct evhttp_request* req, void* arg) {
+            mylog::GetLogger("asynclogger")->Info("Restore start");
+            std::string url_to_restore;
+            // 处理GET请求 - 从URL参数获取
+            const char* uri = evhttp_request_get_uri(req);
+            mylog::GetLogger("asynclogger")->Info("Restore GET request URI: %s", uri);
+            
+            // 解析参数
+            struct evkeyvalq params;
+            evhttp_parse_query(uri, &params);
+
+            const char* url_param = evhttp_find_header(&params, "url");
+            if(url_param) {
+                url_to_restore = UrlDecode(url_param);
+                mylog::GetLogger("asynclogger")->Info("Restore URL from GET params: %s", url_to_restore.c_str());
+            }
+            evhttp_clear_headers(&params);
+
+            if(url_to_restore.empty()){
+                mylog::GetLogger("asynclogger")->Error("Restore request missing url parameter");
+                evhttp_send_reply(req, HTTP_BADREQUEST, "Missing url parameter", NULL);
+                return;
+            }
+
+            mylog::GetLogger("asynclogger")->Info("Attempting to restore file with URL: %s", url_to_restore.c_str());
+
+            // 从回收站获取StorageInfo
+            StorageInfo info;
+            if (!recycle_data_->GetOneByURL(url_to_restore, &info)) {
+                mylog::GetLogger("asynclogger")->Error("Failed to get file info from recycle bin: %s", url_to_restore.c_str());
+                evhttp_send_reply(req, HTTP_NOTFOUND, "File not found in recycle bin", NULL);
+                return;
+            }
+            mylog::GetLogger("asynclogger")->Info("Restoring file: %s", info.storage_path_.c_str());
+
+            // 确定目标存储路径
+            std::string storage_type = (info.origin_type_ == "low") ? Config::GetInstance()->GetLowStorageDir() : Config::GetInstance()->GetDeepStorageDir();
+            std::string dest_path = storage_type + FileUtil(info.storage_path_).FileName(); // 恢复到原存储目录
+            StorageInfo new_info = info; // 创建新的StorageInfo用于恢复
+            new_info.storage_path_ = dest_path; // 设置恢复后的存储路径
+            new_info.delete_time_ = 0; // 清除删除时间
+            new_info.origin_type_ = info.origin_type_; // 恢复原始存储类型
+
+            if(!data_->Insert(new_info)) {
+                mylog::GetLogger("asynclogger")->Error("Failed to insert restored file into DataManager: %s", url_to_restore.c_str());
+                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to restore file", NULL);
+                return;
+            }
+
+            if(rename(info.storage_path_.c_str(), dest_path.c_str()) != 0) {
+                mylog::GetLogger("asynclogger")->Error("Failed to restore file: %s", strerror(errno));
+                data_->Delete(dest_path); // 回滚，删除新插入的记录
+                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to restore file", NULL);
+                return;
+            }
+
+            if(!recycle_data_->Delete(url_to_restore)) {
+                mylog::GetLogger("asynclogger")->Error("Failed to delete file from recycle bin: %s", url_to_restore.c_str());
+                rename(dest_path.c_str(), info.storage_path_.c_str()); // 回滚，恢复文件
+                data_->Delete(dest_path); // 删除新插入的记录
+                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to delete file from recycle bin", NULL);
+                return;
+            }
+
+            evhttp_add_header(req->output_headers, "Location", "/recycle");
+            evhttp_send_reply(req, 302, "Found", NULL);
+            mylog::GetLogger("asynclogger")->Info("File restored, redirecting to recycle page");
+        }
+
+        // DeleteRecycle: 处理回收站文件删除请求
+        static void DeleteRecycle(struct evhttp_request* req, void* arg) {
+            mylog::GetLogger("asynclogger")->Info("DeleteRecycle start");
+            std::string url_to_delete;
+            // 处理GET请求 - 从URL参数获取
+            const char* uri = evhttp_request_get_uri(req);
+            mylog::GetLogger("asynclogger")->Info("DeleteRecycle GET request URI: %s", uri);
+            
+            // 解析参数
+            struct evkeyvalq params;
+            evhttp_parse_query(uri, &params);
+
+            const char* url_param = evhttp_find_header(&params, "url");
+            if(url_param) {
+                url_to_delete = UrlDecode(url_param);
+                mylog::GetLogger("asynclogger")->Info("DeleteRecycle URL from GET params: %s", url_to_delete.c_str());
+            }
+            evhttp_clear_headers(&params);
+
+            if(url_to_delete.empty()){
+                mylog::GetLogger("asynclogger")->Error("DeleteRecycle request missing url parameter");
+                evhttp_send_reply(req, HTTP_BADREQUEST, "Missing url parameter", NULL);
+                return;
+            }
+
+            mylog::GetLogger("asynclogger")->Info("Attempting to delete file with URL: %s", url_to_delete.c_str());
+
+            // 从回收站获取StorageInfo
+            StorageInfo info;
+            if (!recycle_data_->GetOneByURL(url_to_delete, &info)) {
+                mylog::GetLogger("asynclogger")->Error("Failed to get file info from recycle bin: %s", url_to_delete.c_str());
+                evhttp_send_reply(req, HTTP_NOTFOUND, "File not found in recycle bin", NULL);
+                return;
+            }
+            mylog::GetLogger("asynclogger")->Info("Delete file: %s", info.storage_path_.c_str());
+
             // 删除物理文件
-            if (remove(info.storage_path_.c_str()) != 0) {
-                mylog::GetLogger("asynclogger")->Error("Failed to delete physical file: %s", info.storage_path_.c_str());
+            if(remove(info.storage_path_.c_str()) != 0) {
+                mylog::GetLogger("asynclogger")->Error("Failed to delete file: %s", strerror(errno));
                 evhttp_send_reply(req, HTTP_INTERNAL, "Failed to delete file", NULL);
                 return;
             }
-            
-            // 从DataManager中删除记录
-            if (!data_->Delete(url_to_delete)) {
-                mylog::GetLogger("asynclogger")->Error("Failed to delete record from DataManager: %s", url_to_delete.c_str());
-                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to delete record", NULL);
+
+            // 从回收站删除记录
+            if(!recycle_data_->Delete(url_to_delete)) {
+                mylog::GetLogger("asynclogger")->Error("Failed to delete file from recycle bin: %s", url_to_delete.c_str());
+                evhttp_send_reply(req, HTTP_INTERNAL, "Failed to delete file from recycle bin", NULL);
                 return;
             }
-            
-            // 返回成功页面或重定向到列表页
-            evhttp_add_header(req->output_headers, "Location", "/");
-            evhttp_send_reply(req, HTTP_MOVETEMP, "File deleted, redirecting...", NULL);
-            mylog::GetLogger("asynclogger")->Info("File deleted successfully: %s", url_to_delete.c_str());
+
+            evhttp_add_header(req->output_headers, "Location", "/recycle");
+            evhttp_send_reply(req, 302, "Found", NULL); // 重定向
+            mylog::GetLogger("asynclogger")->Info("File permanently deleted, redirecting to recycle page");
         }
 
+        // RecycleList: 处理回收站文件列表请求
+        static void RecycleList(struct evhttp_request* req, void* arg) {
+            mylog::GetLogger("asynclogger")->Info("RecycleList() - Recycle page"); // 记录日志
+
+            // 1. 获取所有文件存储信息
+            std::vector<StorageInfo> recycle_files;
+            recycle_data_->GetAll(&recycle_files); // 从DataManager获取所有StorageInfo
+
+            // 读取HTML模板文件 (index.html)
+            std::ifstream templateFile("index.html");
+            std::string templateContent(
+                (std::istreambuf_iterator<char>(templateFile)),
+                std::istreambuf_iterator<char>()); // 将文件内容读入字符串
+
+            // 替换HTML模板中的占位符
+            // 替换文件列表
+            templateContent = std::regex_replace(templateContent,
+                std::regex("\\{\\{FILE_LIST\\}\\}"), // 查找{{FILE_LIST}}
+                generateModernFileList(recycle_files)); // 替换为生成的文件列表HTML
+            // 替换服务器地址
+            templateContent = std::regex_replace(templateContent,
+                std::regex("\\{\\{BACKEND_URL\\}\\}"), // 查找{{BACKEND_URL}}
+                "http://" + storage::Config::GetInstance()->GetServerIp() + ":" + std::to_string(storage::Config::GetInstance()->GetServerPort()));
+
+            // 获取请求的输出缓冲区
+            struct evbuffer* buf = evhttp_request_get_output_buffer(req);
+            // 将生成的HTML内容添加到输出缓冲区
+            evbuffer_add(buf, templateContent.c_str(), templateContent.size());
+            evhttp_add_header(req->output_headers, "Content-Type", "text/html;charset=utf-8"); // 设置响应头
+            evhttp_send_reply(req, HTTP_OK, NULL, NULL); // 发送HTTP OK响应
+            mylog::GetLogger("asynclogger")->Info("RecycleList() finish"); // 记录日志
+        }
     };
 }

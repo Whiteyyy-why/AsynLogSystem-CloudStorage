@@ -1,0 +1,9 @@
+-std=c++17
+-pthread
+-I.
+-I../
+-I../../
+-I../../log_system
+-I../../log_system/logs_code
+-I/usr/include
+-I/usr/local/include
