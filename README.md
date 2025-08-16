@@ -10,7 +10,7 @@ Ubuntu22.04 LTS
 g++安装
 
 ```bash
-sudo update
+sudo apt update
 sudo apt install g++
 ```
 
@@ -19,7 +19,7 @@ sudo apt install g++
 #### 1. jsoncpp
 
 ```bash
-sudo apt-get libjsoncpp-dev
+sudo apt-get install libjsoncpp-dev
 其头文件所在路径是：/usr/include/jsoncpp/json
 动态库在：/usr/lib/x86_64-linux-gnu/libjsoncpp.so-版本号
 编译时需要根据动态库的路径进行正确的设置，否则很容易出现“undefined reference to”问题。
