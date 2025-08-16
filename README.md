@@ -38,7 +38,6 @@ Linux下安装方法：
 sudo apt-get update
 sudo apt-get install build-essential autoconf automake
 sudo apt-get install libssl-dev
-./configure
 wget https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz
 tar xvf libevent-2.1.12-stable.tar.gz  //解压下载的源码压缩包，目录下会生成一个libevent-2.1.12-stable目录
 cd libevent-2.1.12-stable                 //切换到libevent-2.1.12-stable目录,(安装步骤可以查看README.md文件)
