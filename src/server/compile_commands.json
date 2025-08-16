@@ -8,9 +8,9 @@
       "test",
       "Test.cpp"
     ],
-    "directory": "/home/why/AsynLogSystem-CloudStorage-main/src/server",
-    "file": "/home/why/AsynLogSystem-CloudStorage-main/src/server/Test.cpp",
-    "output": "/home/why/AsynLogSystem-CloudStorage-main/src/server/test"
+    "directory": "/root/AsynLogSystem-CloudStorage/src/server",
+    "file": "/root/AsynLogSystem-CloudStorage/src/server/Test.cpp",
+    "output": "/root/AsynLogSystem-CloudStorage/src/server/test"
   },
   {
     "arguments": [
@@ -21,8 +21,8 @@
       "test",
       "base64.cpp"
     ],
-    "directory": "/home/why/AsynLogSystem-CloudStorage-main/src/server",
-    "file": "/home/why/AsynLogSystem-CloudStorage-main/src/server/base64.cpp",
-    "output": "/home/why/AsynLogSystem-CloudStorage-main/src/server/test"
+    "directory": "/root/AsynLogSystem-CloudStorage/src/server",
+    "file": "/root/AsynLogSystem-CloudStorage/src/server/base64.cpp",
+    "output": "/root/AsynLogSystem-CloudStorage/src/server/test"
   }
 ]
