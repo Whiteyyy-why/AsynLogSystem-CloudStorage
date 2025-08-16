@@ -199,6 +199,49 @@ namespace storage
 
             // 完整的最终文件存储路径
             std::string final_storage_path = storage_path_dir + filename;
+            std::string base_filename = filename;
+            std::string file_extension;
+            size_t dot_pos = filename.find_last_of('.');
+            if(dot_pos != std::string::npos){
+                base_filename = filename.substr(0, dot_pos);
+                file_extension = filename.substr(dot_pos);
+            }
+
+            int counter = 0;
+            do {
+                if (counter == 0) {
+                    final_storage_path = storage_path_dir + filename;
+                } else {
+                    std::stringstream ss;
+                    ss << storage_path_dir << base_filename;
+                    if (!file_extension.empty()) {
+                        ss << "_(" << counter << ")" << file_extension;
+                    } else {
+                        ss << "_(" << counter << ")";
+                    }
+                    final_storage_path = ss.str();
+                }
+                
+                FileUtil fu_check(final_storage_path);
+                if (!fu_check.Exists()) {
+                    break; // 找到可用的文件名
+                }
+                
+                counter++;
+                
+                // 防止无限循环（理论上不太可能达到）
+                if (counter > 999) {
+                    // 使用时间戳作为后备方案
+                    std::stringstream ts_ss;
+                    ts_ss << storage_path_dir << base_filename << "_" << time(nullptr);
+                    if (!file_extension.empty()) {
+                        ts_ss << file_extension;
+                    }
+                    final_storage_path = ts_ss.str();
+                    mylog::GetLogger("asynclogger")->Warn("Used timestamp for unique filename: %s", final_storage_path.c_str());
+                    break;
+                }
+            } while (true);
             #ifdef DEBUG_LOG
                         mylog::GetLogger("asynclogger")->Debug("storage_path:%s", final_storage_path.c_str());
             #endif
@@ -292,28 +335,37 @@ namespace storage
         // generateModernRecycleList：生成回收站文件列表片段
         static std::string generateModernRecycleList(const std::vector<StorageInfo>& files) {
             std::stringstream ss;
-            
+    
             if (files.empty()) {
                 ss << "<div class='empty-state'>"
-                   << "<div class='icon' style='font-size: 4rem; margin-bottom: 1rem; opacity: 0.5;'>🗑️</div>"
-                   << "<h3>回收站为空</h3>"
-                   << "<p style='color: #666; margin: 1rem 0;'>已删除的文件会出现在这里</p>"
-                   << "<button onclick=\"window.location='/'\" class='btn-primary'>返回主页</button>"
-                   << "</div>";
+                << "<div class='icon'>🗑️</div>"
+                << "<h4>回收站为空</h4>"
+                << "<p>已删除的文件会出现在这里</p>"
+                << "<p style='font-size: 0.9rem; color: #999;'>文件删除后会在回收站保留30天</p>"
+                << "</div>";
                 return ss.str();
             }
 
-            ss << "<div class='recycle-header' style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding: 1rem; background: #f8f9fa; border-radius: 8px;'>"
-               << "<h3 style='margin: 0;'>🗑️ 回收站 (" << files.size() << " 个文件)</h3>"
-               << "<button onclick=\"window.location='/'\" class='btn-primary'>📁 返回主页</button>"
-               << "</div>";
+            // 统计信息卡片
+            size_t total_size = 0;
+            for (const auto& file : files) {
+                total_size += file.fsize_;
+            }
 
-            ss << "<div class='file-list recycle-list'>";
+            ss << "<div class='stats-card'>"
+            << "<div class='stats-info'>"
+            << "📊 统计信息：共 <strong>" << files.size() << "</strong> 个文件，占用 <strong>" << formatSize(total_size) << "</strong>"
+            << "</div>"
+            << "</div>";
+
+            // 文件列表标题
+            ss << "<h3>🗑️ 回收站文件列表</h3>";
             
+            // 文件列表
             for (const auto& file : files) {
                 std::string filename = FileUtil(file.storage_path_).FileName();
                 
-                // 移除时间戳前缀（格式：timestamp_filename）
+                // 移除时间戳前缀
                 size_t underscore_pos = filename.find('_');
                 if (underscore_pos != std::string::npos) {
                     filename = filename.substr(underscore_pos + 1);
@@ -324,38 +376,45 @@ namespace storage
                 if (file.delete_time_ > 0) {
                     time_t delete_time = file.delete_time_;
                     delete_time_str = TimetoStr(delete_time);
-                    // 移除换行符
                     delete_time_str.erase(delete_time_str.find_last_not_of("\n\r") + 1);
                 }
 
-                ss << "<div class='file-item recycle-item' style='background: #fff3cd; border-left: 4px solid #ffc107;'>"
-                   << "<div class='file-info'>"
-                   << "<span style='font-weight: 500;'>🗑️ " << filename << "</span>"
-                   << "<span class='file-type' style='background: " 
-                   << (file.origin_type_ == "low" ? "#28a745" : "#007bff") << "; color: white;'>"
-                   << (file.origin_type_ == "low" ? "普通存储" : "深度存储")
-                   << "</span>"
-                   << "<span>" << formatSize(file.fsize_) << "</span>"
-                   << "<span style='color: #dc3545;'>删除于: " << delete_time_str << "</span>"
-                   << "</div>"
-                   << "<div class='file-actions' style='display: flex; gap: 0.5rem;'>"
-                   << "<button onclick=\"restoreFile('" << file.url_ << "')\" class='btn-success' style='background: #28a745;'>↩️ 恢复</button>"
-                   << "<button onclick=\"permanentDelete('" << file.url_ << "')\" class='btn-danger' style='background: #dc3545;'>🗑️ 彻底删除</button>"
-                   << "</div>"
-                   << "</div>";
+                // 计算剩余天数
+                int remaining_days = 30 - (time(nullptr) - file.delete_time_) / (24 * 60 * 60);
+                if (remaining_days < 0) remaining_days = 0;
+
+                // 存储类型标识
+                std::string storage_type = (file.origin_type_ == "low") ? "普通存储" : "深度存储";
+                std::string type_color = (file.origin_type_ == "low") ? "#28a745" : "#007bff";
+
+                ss << "<div class='file-item'>"
+                << "<div class='file-info'>"
+                << "<span>🗑️ " << filename << "</span>"
+                << "<span class='file-type' style='background: " << type_color << "; color: white;'>"
+                << storage_type << "</span>"
+                << "<span>" << formatSize(file.fsize_) << "</span>"
+                << "<div class='recycle-meta'>"
+                << "<span>🕒 删除于: " << delete_time_str << "</span>"
+                << "<span class='" << (remaining_days <= 7 ? "expiry-warning" : "") << "'>⏳ 剩余 " << remaining_days << " 天</span>"
+                << "</div>"
+                << "</div>"
+                << "<div class='file-actions'>"
+                << "<button onclick=\"restoreFile('" << file.url_ << "')\" class='btn btn-success'>↩️ 恢复</button>"
+                << "<button onclick=\"permanentDelete('" << file.url_ << "')\" class='btn btn-danger'>🗑️ 彻底删除</button>"
+                << "</div>"
+                << "</div>";
             }
 
-            ss << "</div>";
-            
-            // 添加回收站说明
-            ss << "<div style='margin-top: 2rem; padding: 1rem; background: #e3f2fd; border-radius: 5px; border-left: 4px solid #2196f3;'>"
-               << "<h4 style='margin: 0 0 0.5rem 0; color: #1976d2;'>📋 回收站说明</h4>"
-               << "<ul style='margin: 0; padding-left: 1.5rem; color: #555;'>"
-               << "<li>恢复文件：将文件恢复到原来的存储位置</li>"
-               << "<li>彻底删除：永久删除文件，无法恢复</li>"
-               << "<li>文件在回收站中保留30天后自动清理</li>"
-               << "</ul>"
-               << "</div>";
+            // 说明卡片
+            ss << "<div class='info-card'>"
+            << "<h4>📋 回收站说明</h4>"
+            << "<ul>"
+            << "<li><strong>恢复文件：</strong>将文件恢复到原来的存储位置</li>"
+            << "<li><strong>彻底删除：</strong>永久删除文件，无法恢复</li>"
+            << "<li><strong>自动清理：</strong>文件在回收站中保留30天后自动清理</li>"
+            << "<li><strong>即将过期：</strong>剩余7天及以下的文件会显示红色警告</li>"
+            << "</ul>"
+            << "</div>";
 
             return ss.str();
         }
@@ -667,7 +726,7 @@ namespace storage
 
             if(rename(info.storage_path_.c_str(), dest_path.c_str()) != 0) {
                 mylog::GetLogger("asynclogger")->Error("Failed to restore file: %s", strerror(errno));
-                data_->Delete(dest_path); // 回滚，删除新插入的记录
+                data_->Delete(url_to_restore); // 回滚，删除新插入的记录
                 evhttp_send_reply(req, HTTP_INTERNAL, "Failed to restore file", NULL);
                 return;
             }
@@ -675,7 +734,7 @@ namespace storage
             if(!recycle_data_->Delete(url_to_restore)) {
                 mylog::GetLogger("asynclogger")->Error("Failed to delete file from recycle bin: %s", url_to_restore.c_str());
                 rename(dest_path.c_str(), info.storage_path_.c_str()); // 回滚，恢复文件
-                data_->Delete(dest_path); // 删除新插入的记录
+                data_->Delete(url_to_restore); // 删除新插入的记录
                 evhttp_send_reply(req, HTTP_INTERNAL, "Failed to delete file from recycle bin", NULL);
                 return;
             }
@@ -749,7 +808,7 @@ namespace storage
             recycle_data_->GetAll(&recycle_files); // 从DataManager获取所有StorageInfo
 
             // 读取HTML模板文件 (index.html)
-            std::ifstream templateFile("index.html");
+            std::ifstream templateFile("recycle.html");
             std::string templateContent(
                 (std::istreambuf_iterator<char>(templateFile)),
                 std::istreambuf_iterator<char>()); // 将文件内容读入字符串
@@ -757,8 +816,8 @@ namespace storage
             // 替换HTML模板中的占位符
             // 替换文件列表
             templateContent = std::regex_replace(templateContent,
-                std::regex("\\{\\{FILE_LIST\\}\\}"), // 查找{{FILE_LIST}}
-                generateModernFileList(recycle_files)); // 替换为生成的文件列表HTML
+                std::regex("\\{\\{RECYCLE_CONTENT\\}\\}"), // 查找{{RECYCLE_LIST}}
+                generateModernRecycleList(recycle_files)); // 替换为生成的文件列表HTML
             // 替换服务器地址
             templateContent = std::regex_replace(templateContent,
                 std::regex("\\{\\{BACKEND_URL\\}\\}"), // 查找{{BACKEND_URL}}
