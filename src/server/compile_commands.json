@@ -3,26 +3,28 @@
     "arguments": [
       "/usr/bin/g++",
       "-c",
+      "-g",
       "-std=c++17",
       "-o",
-      "test",
+      "gdb_test",
       "Test.cpp"
     ],
     "directory": "/root/AsynLogSystem-CloudStorage/src/server",
     "file": "/root/AsynLogSystem-CloudStorage/src/server/Test.cpp",
-    "output": "/root/AsynLogSystem-CloudStorage/src/server/test"
+    "output": "/root/AsynLogSystem-CloudStorage/src/server/gdb_test"
   },
   {
     "arguments": [
       "/usr/bin/g++",
       "-c",
+      "-g",
       "-std=c++17",
       "-o",
-      "test",
+      "gdb_test",
       "base64.cpp"
     ],
     "directory": "/root/AsynLogSystem-CloudStorage/src/server",
     "file": "/root/AsynLogSystem-CloudStorage/src/server/base64.cpp",
-    "output": "/root/AsynLogSystem-CloudStorage/src/server/test"
+    "output": "/root/AsynLogSystem-CloudStorage/src/server/gdb_test"
   }
 ]
